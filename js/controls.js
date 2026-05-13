@@ -8,6 +8,7 @@ export function initControls(renderer) {
 export function updateVRControls(renderer) {
     if (!renderer.xr.isPresenting) return;
 
+    // Reseteo de estados para evitar persistencia de movimiento
     keys['w'] = false;
     keys['s'] = false;
     keys['a'] = false;
@@ -24,6 +25,7 @@ export function updateVRControls(renderer) {
             
             const gamepad = source.gamepad;
 
+            // Control de movimiento (Joystick Izquierdo)
             if (source.handedness === 'left') {
                 const xAxis = gamepad.axes[2];
                 const yAxis = gamepad.axes[3];
@@ -33,13 +35,14 @@ export function updateVRControls(renderer) {
                 if (xAxis < -0.2) keys['a'] = true;
                 if (xAxis > 0.2) keys['d'] = true;
 
-                if (gamepad.buttons[0].pressed) keys['shift'] = true;
+                if (gamepad.buttons[0].pressed) keys['shift'] = true; // Trigger
             }
 
+            // Control de combate (Mando Derecho)
             if (source.handedness === 'right') {
-                if (gamepad.buttons[0].pressed) keys['k'] = true; 
-                if (gamepad.buttons[1].pressed) keys['l'] = true; 
-                if (gamepad.buttons[4].pressed || gamepad.buttons[5].pressed) keys['b'] = true; 
+                if (gamepad.buttons[0].pressed) keys['k'] = true; // Trigger -> Ataque
+                if (gamepad.buttons[1].pressed) keys['l'] = true; // Grip -> Patada
+                if (gamepad.buttons[4].pressed || gamepad.buttons[5].pressed) keys['b'] = true; // Botones A/B -> Bloqueo
             }
         }
     }
