@@ -1,19 +1,17 @@
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.158/build/three.module.js';
 import { FBXLoader } from 'https://cdn.jsdelivr.net/npm/three@0.158/examples/jsm/loaders/FBXLoader.js';
-import { scene, physics } from './scene.js';
-import { keys } from './controls.js';
+import { scene, physics, camera } from './scene.js';
+import { keys, moveAxes } from './controls.js';
 import { enemy } from './enemy.js';
 import { playHitSound } from './scene.js';
 
-// Ajuste de escala (3x sobre el valor anterior) e indicadores físicos
 export const CHAR_SCALE = 0.0333; 
 export const CHAR_HEIGHT = 6.0;
 export const CHAR_RADIUS = 1.2;
-const GROUND_OFFSET = 0.02;
 
 export let player = {
     mesh: null,
-    speed: 12, // Velocidad ajustada a la nueva escala
+    speed: 12, 
     health: 100,
     energy: 0,
     isBlocking: false,
@@ -37,7 +35,6 @@ export function initPlayer() {
                 child.receiveShadow = true;
             }
         });
-
         scene.add(player.mesh);
 
         player.mixer = new THREE.AnimationMixer(player.mesh);
@@ -57,9 +54,7 @@ function loadAnimation(loader, path, name, isAttack = false) {
     loader.load(path, (animObject) => {
         if (!animObject.animations || animObject.animations.length === 0) return;
         const anim = animObject.animations[0];
-        anim.tracks.forEach(track => {
-            track.name = track.name.replace(/.*mixamorig/i, 'mixamorig');
-        });
+        anim.tracks.forEach(track => track.name = track.name.replace(/.*mixamorig/i, 'mixamorig'));
         const action = player.mixer.clipAction(anim);
         if (isAttack) {
             action.setLoop(THREE.LoopOnce);
@@ -88,48 +83,54 @@ export function updatePlayer(delta) {
     player.isBlocking = keys['b'];
     if (player.isBlocking) {
         targetAnimation = 'block';
-        player.currentState = 'block';
         canAct = false;
     } else if (canAct) {
-        if (keys['k']) {
-            executeAttack(10, 0.65);
-            targetAnimation = 'punch';
-            player.currentState = 'punch';
-            canAct = false;
-        } else if (keys['l']) {
-            executeAttack(20, 0.85);
-            targetAnimation = 'kick';
-            player.currentState = 'kick';
-            canAct = false;
-        }
+        if (keys['k']) { executeAttack(10, 0.65); targetAnimation = 'punch'; canAct = false; }
+        else if (keys['l']) { executeAttack(20, 0.85); targetAnimation = 'kick'; canAct = false; }
     }
 
-    const move = new THREE.Vector3();
-    if (canAct) {
-        if (keys['w']) move.z -= 1;
-        if (keys['s']) move.z += 1;
-        if (keys['a']) move.x -= 1;
-        if (keys['d']) move.x += 1;
-    }
-
-    if (move.length() > 0) {
-        move.normalize();
+    if (canAct && (moveAxes.lengthSq() > 0 || keys['w'] || keys['s'] || keys['a'] || keys['d'])) {
         targetAnimation = 'walk';
-        player.currentState = 'walk';
         let speed = player.speed;
         if (keys['shift']) speed *= 1.5;
 
-        const next = player.mesh.position.clone().add(
-            move.clone().multiplyScalar(speed * delta)
-        );
+        const cameraDirection = new THREE.Vector3();
+        camera.getWorldDirection(cameraDirection);
+        cameraDirection.y = 0; 
+        cameraDirection.normalize();
 
-        if (physics?.canMove(player.mesh.position, move, speed * delta)) {
-            player.mesh.position.copy(next);
+        const cameraRight = new THREE.Vector3().crossVectors(cameraDirection, new THREE.Vector3(0, 1, 0)).normalize();
+
+        const finalMove = new THREE.Vector3();
+
+        if (moveAxes.lengthSq() > 0) {
+            finalMove.addScaledVector(cameraRight, moveAxes.x);
+            finalMove.addScaledVector(cameraDirection, -moveAxes.y); 
+        } 
+        else {
+            if (keys['w']) finalMove.add(cameraDirection);
+            if (keys['s']) finalMove.addScaledVector(cameraDirection, -1);
+            if (keys['a']) finalMove.addScaledVector(cameraRight, -1);
+            if (keys['d']) finalMove.add(cameraRight);
         }
 
-        const targetRotation = Math.atan2(move.x, move.z);
-        // Suavizado de rotación incrementado (0.2) para mayor fluidez
-        player.mesh.rotation.y += (targetRotation - player.mesh.rotation.y) * 0.2;
+        if (finalMove.lengthSq() > 0) {
+            finalMove.normalize();
+            
+            const next = player.mesh.position.clone().add(
+                finalMove.clone().multiplyScalar(speed * delta)
+            );
+
+            if (physics?.canMove(player.mesh.position, finalMove, speed * delta)) {
+                player.mesh.position.copy(next);
+            }
+
+            const targetRotation = Math.atan2(finalMove.x, finalMove.z);
+            let diff = targetRotation - player.mesh.rotation.y;
+            while (diff < -Math.PI) diff += Math.PI * 2;
+            while (diff > Math.PI) diff -= Math.PI * 2;
+            player.mesh.rotation.y += diff * 0.15;
+        }
     }
 
     fadeToAction(targetAnimation);
@@ -153,10 +154,8 @@ function executeAttack(damageValue, cooldownTime) {
     if (enemy?.mesh) {
         const attackReach = CHAR_RADIUS * 2 + 0.8;
         const dist = player.mesh.position.distanceTo(enemy.mesh.position);
-        if (dist < attackReach) {
-            if (!enemy.isBlocking) {
-                enemy.health -= damageValue;
-            }
+        if (dist < attackReach && !enemy.isBlocking) {
+            enemy.health -= damageValue;
         }
     }
 }

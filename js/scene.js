@@ -1,11 +1,15 @@
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.158/build/three.module.js';
 import { RGBELoader } from 'https://cdn.jsdelivr.net/npm/three@0.158/examples/jsm/loaders/RGBELoader.js';
 import { GLTFLoader } from 'https://cdn.jsdelivr.net/npm/three@0.158/examples/jsm/loaders/GLTFLoader.js';
+import { XRControllerModelFactory } from 'https://cdn.jsdelivr.net/npm/three@0.158/examples/jsm/webxr/XRControllerModelFactory.js';
 import { PhysicsWorld } from './PhysicsWorld.js';
 import { CHAR_HEIGHT } from './player.js';
 
 export let scene, camera, renderer, physics, vrRig;
 export let worldColliders = [];
+export let controller1, controller2;
+export let controllerGrip1, controllerGrip2;
+
 let listener, audioLoader, bgSound, hitSound;
 let audioUnlocked = false, bgReady = false;
 
@@ -24,11 +28,10 @@ export function initScene() {
     camera = new THREE.PerspectiveCamera(
         75, 
         window.innerWidth / window.innerHeight, 
-        0.35, // Near plane ajustado para evitar clipping interno del modelo
+        0.35, 
         1500
     );
     
-    // Altura de ojos proporcional a la nueva escala
     camera.position.set(0, CHAR_HEIGHT * 0.92, 0); 
     vrRig.add(camera);
 
@@ -43,6 +46,22 @@ export function initScene() {
         camera.updateProjectionMatrix();
         renderer.setSize(window.innerWidth, window.innerHeight);
     });
+
+    controller1 = renderer.xr.getController(0);
+    vrRig.add(controller1);
+
+    controller2 = renderer.xr.getController(1);
+    vrRig.add(controller2);
+
+    const controllerModelFactory = new XRControllerModelFactory();
+
+    controllerGrip1 = renderer.xr.getControllerGrip(0);
+    controllerGrip1.add(controllerModelFactory.createControllerModel(controllerGrip1));
+    vrRig.add(controllerGrip1);
+
+    controllerGrip2 = renderer.xr.getControllerGrip(1);
+    controllerGrip2.add(controllerModelFactory.createControllerModel(controllerGrip2));
+    vrRig.add(controllerGrip2);
 
     physics = new PhysicsWorld(scene, () => worldColliders);
     initLights();
@@ -88,6 +107,20 @@ function initAudio() {
     });
 }
 
+export function unlockAudio() {
+    const ctx = listener?.context;
+    if (!ctx) return;
+    if (ctx.state === 'suspended') {
+        ctx.resume().then(() => {
+            audioUnlocked = true;
+            if (bgReady) bgSound.play();
+        });
+    } else {
+        audioUnlocked = true;
+        if (bgReady) bgSound.play();
+    }
+}
+
 function loadMap() {
     const loader = new GLTFLoader();
     loader.load('./assets/models/escenario.glb', (gltf) => {
@@ -96,7 +129,7 @@ function loadMap() {
         const size = new THREE.Vector3();
         box.getSize(size);
         const maxSize = Math.max(size.x, size.z);
-        const TARGET_SIZE = 120; // Mapa expandido para la nueva escala
+        const TARGET_SIZE = 120; 
         const scale = TARGET_SIZE / maxSize;
         map.scale.setScalar(scale);
 
@@ -120,16 +153,12 @@ export function updateCamera(player) {
     if (!player?.mesh) return;
 
     if (renderer.xr.isPresenting) {
-        // Sincronización del Rig con el modelo
         vrRig.position.copy(player.mesh.position);
         vrRig.rotation.y = player.mesh.rotation.y;
-        
-        // Mantenemos visible el modelo para que se vea el cuerpo al bajar la mirada
         player.mesh.visible = true; 
         return;
     }
 
-    // Lógica de cámara tercera persona para PC (se mantiene funcional)
     const offset = new THREE.Vector3(0, CHAR_HEIGHT * 0.8, 12);
     offset.applyQuaternion(player.mesh.quaternion);
     const target = player.mesh.position.clone().add(offset);
