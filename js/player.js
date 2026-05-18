@@ -1,9 +1,8 @@
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.158/build/three.module.js';
 import { FBXLoader } from 'https://cdn.jsdelivr.net/npm/three@0.158/examples/jsm/loaders/FBXLoader.js';
-import { scene, physics, camera } from './scene.js';
+import { scene, getPhysics, camera, playHitSound } from './scene.js'; // CAMBIO: Usamos getPhysics
 import { keys, moveAxes } from './controls.js';
 import { enemy } from './enemy.js';
-import { playHitSound } from './scene.js';
 
 export const CHAR_SCALE = 0.0333; 
 export const CHAR_HEIGHT = 6.0;
@@ -27,7 +26,8 @@ export function initPlayer() {
     loader.load('./assets/models/Standing Idle To Fight Idle.fbx', (object) => {
         player.mesh = object;
         player.mesh.scale.setScalar(CHAR_SCALE);
-        player.mesh.position.set(-3, 20, 0);
+        // CAMBIO: Spawn más cerca del suelo para evitar quedar atascado
+        player.mesh.position.set(-3, 2, 0); 
         
         player.mesh.traverse((child) => {
             if (child.isMesh) {
@@ -74,6 +74,10 @@ function fadeToAction(name, duration = 0.2) {
 
 export function updatePlayer(delta) {
     if (!player.mesh) return;
+    
+    // CAMBIO: Obtenemos la instancia segura de físicas
+    const physics = getPhysics(); 
+
     if (player.mixer) player.mixer.update(delta);
     if (player.attackCooldown > 0) player.attackCooldown -= delta;
 
@@ -97,10 +101,15 @@ export function updatePlayer(delta) {
         const cameraDirection = new THREE.Vector3();
         camera.getWorldDirection(cameraDirection);
         cameraDirection.y = 0; 
+
+        // CAMBIO: Prevención de Gimbal Lock si el jugador mira directamente al suelo
+        if (cameraDirection.lengthSq() < 0.01) {
+            player.mesh.getWorldDirection(cameraDirection);
+            cameraDirection.y = 0;
+        }
         cameraDirection.normalize();
 
         const cameraRight = new THREE.Vector3().crossVectors(cameraDirection, new THREE.Vector3(0, 1, 0)).normalize();
-
         const finalMove = new THREE.Vector3();
 
         if (moveAxes.lengthSq() > 0) {
@@ -121,7 +130,8 @@ export function updatePlayer(delta) {
                 finalMove.clone().multiplyScalar(speed * delta)
             );
 
-            if (physics?.canMove(player.mesh.position, finalMove, speed * delta)) {
+            // Verificamos explícitamente que physics exista
+            if (physics && physics.canMove(player.mesh.position, finalMove, speed * delta)) {
                 player.mesh.position.copy(next);
             }
 
@@ -134,17 +144,21 @@ export function updatePlayer(delta) {
     }
 
     fadeToAction(targetAnimation);
-    groundSnap(player.mesh);
+    groundSnap(player.mesh, physics); 
 }
 
-export function groundSnap(mesh) {
+export function groundSnap(mesh, physics) {
     if (!physics?.raycaster) return;
     const origin = mesh.position.clone();
-    origin.y += 2;
+    origin.y += 2; 
     physics.raycaster.set(origin, new THREE.Vector3(0, -1, 0));
     const hits = physics.raycaster.intersectObjects(physics.getColliders(), true);
+    
     if (hits.length > 0) {
         mesh.position.y = hits[0].point.y;
+    } else {
+        // CAMBIO: Gravedad de emergencia si el Raycaster tarda en cargar los colliders
+        mesh.position.y -= 0.15;
     }
 }
 

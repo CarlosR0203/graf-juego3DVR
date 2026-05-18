@@ -10,6 +10,9 @@ export let worldColliders = [];
 export let controller1, controller2;
 export let controllerGrip1, controllerGrip2;
 
+// CAMBIO: Getter para resolver el problema de inicialización
+export function getPhysics() { return physics; }
+
 let listener, audioLoader, bgSound, hitSound;
 let audioUnlocked = false, bgReady = false;
 
@@ -23,15 +26,12 @@ export function playHitSound() {
 export function initScene() {
     scene = new THREE.Scene();
     vrRig = new THREE.Group();
+    
+    // CAMBIO: Se escala el rig 3x. Así tu altura física se escala a la altura del personaje.
+    vrRig.scale.setScalar(3.0); 
     scene.add(vrRig);
 
-    camera = new THREE.PerspectiveCamera(
-        75, 
-        window.innerWidth / window.innerHeight, 
-        0.35, 
-        1500
-    );
-    
+    camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.35, 1500);
     camera.position.set(0, CHAR_HEIGHT * 0.92, 0); 
     vrRig.add(camera);
 
@@ -64,6 +64,7 @@ export function initScene() {
     vrRig.add(controllerGrip2);
 
     physics = new PhysicsWorld(scene, () => worldColliders);
+    
     initLights();
     initAudio();
     loadHDR();
@@ -155,6 +156,10 @@ export function updateCamera(player) {
     if (renderer.xr.isPresenting) {
         vrRig.position.copy(player.mesh.position);
         vrRig.rotation.y = player.mesh.rotation.y;
+        
+        // CAMBIO: Al resetear la cámara en VR, permites que las gafas tomen el control nativo de la altura física
+        camera.position.set(0, 0, 0); 
+        
         player.mesh.visible = true; 
         return;
     }
