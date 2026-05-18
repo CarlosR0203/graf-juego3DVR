@@ -1,6 +1,6 @@
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.158/build/three.module.js';
 import { FBXLoader } from 'https://cdn.jsdelivr.net/npm/three@0.158/examples/jsm/loaders/FBXLoader.js';
-import { scene, getPhysics, camera, playHitSound } from './scene.js'; // CAMBIO: Usamos getPhysics
+import { scene, getPhysics, camera, renderer, vrRig, playHitSound } from './scene.js';
 import { keys, moveAxes } from './controls.js';
 import { enemy } from './enemy.js';
 
@@ -26,7 +26,6 @@ export function initPlayer() {
     loader.load('./assets/models/Standing Idle To Fight Idle.fbx', (object) => {
         player.mesh = object;
         player.mesh.scale.setScalar(CHAR_SCALE);
-        // CAMBIO: Spawn más cerca del suelo para evitar quedar atascado
         player.mesh.position.set(-3, 2, 0); 
         
         player.mesh.traverse((child) => {
@@ -75,7 +74,6 @@ function fadeToAction(name, duration = 0.2) {
 export function updatePlayer(delta) {
     if (!player.mesh) return;
     
-    // CAMBIO: Obtenemos la instancia segura de físicas
     const physics = getPhysics(); 
 
     if (player.mixer) player.mixer.update(delta);
@@ -101,8 +99,7 @@ export function updatePlayer(delta) {
         const cameraDirection = new THREE.Vector3();
         camera.getWorldDirection(cameraDirection);
         cameraDirection.y = 0; 
-
-        // CAMBIO: Prevención de Gimbal Lock si el jugador mira directamente al suelo
+        
         if (cameraDirection.lengthSq() < 0.01) {
             player.mesh.getWorldDirection(cameraDirection);
             cameraDirection.y = 0;
@@ -126,20 +123,25 @@ export function updatePlayer(delta) {
         if (finalMove.lengthSq() > 0) {
             finalMove.normalize();
             
-            const next = player.mesh.position.clone().add(
+            // Decidimos a quién movemos dependiendo de si estás en VR o en PC
+            const targetToMove = renderer.xr.isPresenting ? vrRig : player.mesh;
+            
+            const next = targetToMove.position.clone().add(
                 finalMove.clone().multiplyScalar(speed * delta)
             );
 
-            // Verificamos explícitamente que physics exista
+            // Verificamos colisión usando la posición física de la caja del jugador
             if (physics && physics.canMove(player.mesh.position, finalMove, speed * delta)) {
-                player.mesh.position.copy(next);
+                targetToMove.position.copy(next);
             }
 
-            const targetRotation = Math.atan2(finalMove.x, finalMove.z);
-            let diff = targetRotation - player.mesh.rotation.y;
-            while (diff < -Math.PI) diff += Math.PI * 2;
-            while (diff > Math.PI) diff -= Math.PI * 2;
-            player.mesh.rotation.y += diff * 0.15;
+            if (!renderer.xr.isPresenting) {
+                const targetRotation = Math.atan2(finalMove.x, finalMove.z);
+                let diff = targetRotation - player.mesh.rotation.y;
+                while (diff < -Math.PI) diff += Math.PI * 2;
+                while (diff > Math.PI) diff -= Math.PI * 2;
+                player.mesh.rotation.y += diff * 0.15;
+            }
         }
     }
 
@@ -150,15 +152,16 @@ export function updatePlayer(delta) {
 export function groundSnap(mesh, physics) {
     if (!physics?.raycaster) return;
     const origin = mesh.position.clone();
-    origin.y += 2; 
+    origin.y += 5; 
     physics.raycaster.set(origin, new THREE.Vector3(0, -1, 0));
     const hits = physics.raycaster.intersectObjects(physics.getColliders(), true);
     
     if (hits.length > 0) {
-        mesh.position.y = hits[0].point.y;
-    } else {
-        // CAMBIO: Gravedad de emergencia si el Raycaster tarda en cargar los colliders
-        mesh.position.y -= 0.15;
+        if (renderer.xr.isPresenting) {
+            vrRig.position.y = hits[0].point.y; 
+        } else {
+            mesh.position.y = hits[0].point.y;
+        }
     }
 }
 

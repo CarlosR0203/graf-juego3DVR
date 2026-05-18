@@ -10,7 +10,6 @@ export let worldColliders = [];
 export let controller1, controller2;
 export let controllerGrip1, controllerGrip2;
 
-// CAMBIO: Getter para resolver el problema de inicialización
 export function getPhysics() { return physics; }
 
 let listener, audioLoader, bgSound, hitSound;
@@ -25,10 +24,9 @@ export function playHitSound() {
 
 export function initScene() {
     scene = new THREE.Scene();
-    vrRig = new THREE.Group();
     
-    // CAMBIO: Se escala el rig 3x. Así tu altura física se escala a la altura del personaje.
-    vrRig.scale.setScalar(3.0); 
+    vrRig = new THREE.Group();
+    vrRig.scale.setScalar(3.0); // Tu altura real se multiplica x3 para que sientas la escala correcta
     scene.add(vrRig);
 
     camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.35, 1500);
@@ -154,16 +152,23 @@ export function updateCamera(player) {
     if (!player?.mesh) return;
 
     if (renderer.xr.isPresenting) {
-        vrRig.position.copy(player.mesh.position);
-        vrRig.rotation.y = player.mesh.rotation.y;
+        // En VR, tu avatar (el mesh) es arrastrado hacia la posición real de tu cabeza
+        const headPos = new THREE.Vector3();
+        camera.getWorldPosition(headPos);
         
-        // CAMBIO: Al resetear la cámara en VR, permites que las gafas tomen el control nativo de la altura física
-        camera.position.set(0, 0, 0); 
+        player.mesh.position.x = headPos.x;
+        player.mesh.position.z = headPos.z;
+        
+        // Hacemos que el cuerpo apunte hacia donde tú miras
+        const headDir = new THREE.Vector3();
+        camera.getWorldDirection(headDir);
+        player.mesh.rotation.y = Math.atan2(headDir.x, headDir.z);
         
         player.mesh.visible = true; 
         return;
     }
 
+    // Cámara clásica de PC (Tercera Persona)
     const offset = new THREE.Vector3(0, CHAR_HEIGHT * 0.8, 12);
     offset.applyQuaternion(player.mesh.quaternion);
     const target = player.mesh.position.clone().add(offset);
