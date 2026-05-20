@@ -3,7 +3,6 @@ import { FBXLoader } from 'https://cdn.jsdelivr.net/npm/three@0.158/examples/jsm
 import { scene, physics } from './scene.js';
 import { playHitSound } from './scene.js';
 import { CHAR_SCALE, CHAR_HEIGHT, CHAR_RADIUS, groundSnap } from './player.js';
-import { loadingManager } from './main.js'; // Importamos el gestor de carga
 
 export let enemy = {
     mesh: null,
@@ -17,9 +16,9 @@ export let enemy = {
     currentAction: null
 };
 
-export function initEnemy() {
-    // Le pasamos el manager al loader para vincularlos a la pantalla de carga real
-    const loader = new FBXLoader(loadingManager);
+// Recibimos el manager como parámetro desde main.js
+export function initEnemy(manager = null) {
+    const loader = new FBXLoader(manager);
     
     loader.load('./assets/models/Enemy_Standing Idle To Fight Idle.fbx', (object) => {
         enemy.mesh = object;

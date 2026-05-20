@@ -8,19 +8,21 @@ import { updateUI } from './ui.js';
 
 const clock = new THREE.Clock();
 
+// --- GESTOR DE CARGA REAL PARA GITHUB PAGES ---
+const loadingManager = new THREE.LoadingManager();
+
 initScene();
 initControls(renderer);
 initPlayer();
-initEnemy();
+// Aquí le pasamos el manager al enemigo para que sepa cuándo terminan de descargar los .fbx
+initEnemy(loadingManager);
 
-// ── WebXR ────────────────────────────────────────────────────
+// WebXR
 renderer.xr.enabled = true;
-
 const vrButton = VRButton.createButton(renderer);
-vrButton.style.cssText += '; bottom: 60px; z-index: 1000;'; // no tapar footer
+vrButton.style.cssText += '; bottom: 60px; z-index: 1000;'; 
 document.body.appendChild(vrButton);
 
-// Cuando entra en VR, ocultar la UI HTML (se usa el panel 3D)
 renderer.xr.addEventListener('sessionstart', () => {
     document.getElementById('ui').classList.add('hidden');
     console.log('[VR] Sesión VR iniciada - Meta Quest 3');
@@ -29,76 +31,79 @@ renderer.xr.addEventListener('sessionstart', () => {
 renderer.xr.addEventListener('sessionend', () => {
     if (gameState === 'playing') {
         document.getElementById('ui').classList.remove('hidden');
+        console.log('[VR] Sesión VR finalizada');
     }
-    console.log('[VR] Sesión VR finalizada');
 });
 
-// ── Estado de juego ─────────────────────────────────────────
+// Estado de juego e interfaz
 let gameState = 'loading';
-
-const loadingScreen  = document.getElementById('loadingScreen');
+const loadingScreen = document.getElementById('loadingScreen');
 const loadingProgress = document.getElementById('loadingProgress');
-const startScreen    = document.getElementById('startScreen');
-const playBtn        = document.getElementById('playBtn');
-const volumeSlider   = document.getElementById('volumeSlider');
-const bgMusic        = document.getElementById('bgMusic');
-const uiLayer        = document.getElementById('ui');
+const startScreen = document.getElementById('startScreen');
+const playBtn = document.getElementById('playBtn');
+const volumeSlider = document.getElementById('volumeSlider');
+const bgMusic = document.getElementById('bgMusic');
+const uiLayer = document.getElementById('ui');
 
 // Marcador persistente
 let playerWins = parseInt(localStorage.getItem('arena_playerWins') || '0');
-let enemyWins  = parseInt(localStorage.getItem('arena_enemyWins')  || '0');
+let enemyWins = parseInt(localStorage.getItem('arena_enemyWins') || '0');
 
 function updateScoreDisplay() {
     const text = `Victorias: ${playerWins} - Derrotas: ${enemyWins}`;
-    document.getElementById('winScoreDisplay').innerText  = text;
+    document.getElementById('winScoreDisplay').innerText = text;
     document.getElementById('loseScoreDisplay').innerText = text;
 }
 updateScoreDisplay();
 
-// Simular carga
-
-export const loadingManager = new THREE.LoadingManager();
-
-// El gestor actualiza la barra automáticamente según los archivos descargados
+// Conectamos el LoadingManager con la barra HTML
 loadingManager.onProgress = function (url, itemsLoaded, itemsTotal) {
-    const actualProgress = (itemsLoaded / itemsTotal) * 100;
-    loadingProgress.style.width = `${actualProgress}%`;
+    const progress = (itemsLoaded / itemsTotal) * 100;
+    if(loadingProgress) loadingProgress.style.width = `${progress}%`;
 };
 
-// Solo cuando TODO se haya descargado se oculta la pantalla de carga
 loadingManager.onLoad = function () {
     setTimeout(() => {
-        loadingScreen.classList.add('hidden');
-        startScreen.classList.remove('hidden');
+        if(loadingScreen) loadingScreen.classList.add('hidden');
+        if(startScreen) startScreen.classList.remove('hidden');
         gameState = 'menu';
     }, 500);
 };
 
-// Captura errores útiles para debuggear en GitHub Pages
 loadingManager.onError = function (url) {
-    console.error('Error de red al intentar cargar:', url);
+    console.error('[ERROR RED] No se pudo cargar: ' + url);
 };
 
-// ── Loop principal ───────────────────────────────────────────
+volumeSlider.addEventListener('input', (e) => {
+    bgMusic.volume = e.target.value;
+});
+
+playBtn.addEventListener('click', () => {
+    startScreen.classList.add('hidden');
+    if (!renderer.xr.isPresenting) {
+        uiLayer.classList.remove('hidden');
+    }
+    bgMusic.play().catch(e => console.log('Autoplay bloqueado', e));
+    gameState = 'playing';
+});
+
+// Loop principal
 function animate() {
     const delta = clock.getDelta();
-
-    // Leer mandos Meta Quest 3
+    
     updateVRControls(renderer);
 
-    if (player?.mesh) updatePlayer(delta, gameState === 'playing');
-    if (enemy?.mesh)  updateEnemy(delta, player, gameState === 'playing');
+    // Corregimos los argumentos para que coincidan con la exportación de player.js
+    if (player?.mesh) updatePlayer(player, camera, delta);
+    if (enemy?.mesh) updateEnemy(delta, player, gameState === 'playing');
 
     if (gameState === 'playing') {
-
-        // UI: HTML en desktop, panel 3D en VR
         if (renderer.xr.isPresenting) {
             updateVRPanel(player.health, player.energy, enemy.health);
         } else {
             updateUI();
         }
 
-        // Victoria / Derrota
         if (enemy.health <= 0) {
             gameState = 'gameover';
             playerWins++;
@@ -106,7 +111,6 @@ function animate() {
             updateScoreDisplay();
             document.getElementById('ui').classList.add('hidden');
             document.getElementById('winScreen').classList.remove('hidden');
-
         } else if (player.health <= 0) {
             gameState = 'gameover';
             enemyWins++;
@@ -116,10 +120,8 @@ function animate() {
             document.getElementById('loseScreen').classList.remove('hidden');
         }
     }
-
     updateCamera(player, enemy);
     renderer.render(scene, camera);
 }
 
-// setAnimationLoop es obligatorio para WebXR
 renderer.setAnimationLoop(animate);
