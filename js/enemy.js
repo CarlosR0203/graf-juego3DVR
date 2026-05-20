@@ -17,11 +17,22 @@ export function initEnemy(manager = null) {
         const box = new THREE.Box3().setFromObject(enemy.mesh);
         const size = new THREE.Vector3();
         box.getSize(size);
-        const scale = 6.6 / size.y;
+        
+        // CORRECCIÓN DE PROPORCIÓN: Ajustado a 2.0 metros de altura para simular un oponente real.
+        // Esto elimina la desproporción masiva anterior que te hacía sentir pequeño.
+        const targetHeight = 2.0; 
+        const scale = targetHeight / size.y;
         
         enemy.mesh.scale.setScalar(scale);
-        enemy.mesh.position.set(0, 0, -5); // Inicia en el suelo
+        enemy.mesh.position.set(0, 0, -2); // Posición inicial frente a tus ojos
         
+        enemy.mesh.traverse((child) => {
+            if (child.isMesh) {
+                child.castShadow = true;
+                child.receiveShadow = true;
+            }
+        });
+
         enemy.mixer = new THREE.AnimationMixer(enemy.mesh);
         if (object.animations && object.animations.length > 0) {
             const idleAction = enemy.mixer.clipAction(object.animations[0]);
@@ -81,26 +92,22 @@ export function updateEnemy(delta, playerRef, isPlaying = true) {
     }
     
     if (playerRef && playerRef.mesh && canAct && enemy.health > 0) {
-        // Calcular distancia real hacia la posición de la cámara del jugador (su Rig)
+        // Localización directa dirigida al Rig (posición real del jugador en el mapa)
         const dist = enemy.mesh.position.distanceTo(playerRef.rig.position);
         const dir = new THREE.Vector3().subVectors(playerRef.rig.position, enemy.mesh.position);
         dir.y = 0;
         if (dir.length() > 0) dir.normalize();
         
-        // Rotar al enemigo para que te mire
         const targetRotation = Math.atan2(dir.x, dir.z);
         enemy.mesh.rotation.y += (targetRotation - enemy.mesh.rotation.y) * 0.10;
         
-        // Rango de ataque ajustado
-        const attackReach = CHAR_RADIUS * 2 + 1.8;
+        // Rango de alcance de golpe optimizado para escala de proporciones idénticas
+        const attackReach = CHAR_RADIUS * 2 + 0.6;
         
         if (dist > attackReach) {
             targetAnimation = 'walk';
             enemy.currentState = 'walk';
-            
-            // Forzar movimiento ignorando colisiones estrictas para que no se quede congelado
             enemy.mesh.position.addScaledVector(dir, enemy.speed * delta);
-            
         } else {
             const actionChoice = Math.random();
             if (actionChoice < 0.4) {
@@ -125,8 +132,8 @@ export function getEnemyAABB() {
     if (!enemy.mesh) return null;
     const pos = enemy.mesh.position;
     return new THREE.Box3(
-        new THREE.Vector3(pos.x - 1, pos.y, pos.z - 1),
-        new THREE.Vector3(pos.x + 1, pos.y + 6.6, pos.z + 1)
+        new THREE.Vector3(pos.x - 0.5, pos.y, pos.z - 0.5),
+        new THREE.Vector3(pos.x + 0.5, pos.y + 2.0, pos.z + 0.5)
     );
 }
 
@@ -135,7 +142,7 @@ function executeAttack(damageValue, cooldownTime, playerRef) {
     playHitSound();
     if (playerRef && playerRef.health !== undefined) {
         if (playerRef.isBlocking) {
-            console.log('[COMBAT] Bloqueaste el ataque');
+            console.log('[COMBAT] Bloqueaste el golpe del oponente.');
         } else {
             playerRef.health -= damageValue;
         }
