@@ -1,318 +1,155 @@
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.158/build/three.module.js';
-import { RGBELoader } from 'https://cdn.jsdelivr.net/npm/three@0.158/examples/jsm/loaders/RGBELoader.js';
-import { GLTFLoader } from 'https://cdn.jsdelivr.net/npm/three@0.158/examples/jsm/loaders/GLTFLoader.js';
 import { PhysicsWorld } from './PhysicsWorld.js';
 
-export let scene, camera, renderer;
-export let physics;
-export let worldColliders = [];
+// Variables globales del entorno gráfico
+export let scene, camera, renderer, physics;
 
-// ─────────────────────────────
-// AUDIO
-// ─────────────────────────────
-let listener;
-let audioLoader;
-let bgSound;
-let hitSound;
-let audioUnlocked = false;
-let bgReady = false;
+// Elementos del HUD de Realidad Virtual
+export let vrHUD;
+let playerHealthBar, playerEnergyBar, enemyHealthBar;
 
-export function playHitSound() {
-    if (!hitSound?.buffer) return;
-    hitSound.stop();
-    hitSound.play();
-}
+// Almacenamiento de objetos con colisión para el PhysicsWorld
+const colliders = [];
 
-// ─────────────────────────────
-// PANEL VR (UI 3D en mundo)
-// ─────────────────────────────
-let vrPanel = null;
-let vrCanvas = null;
-let vrTexture = null;
-
-export function initVRPanel() {
-    // Canvas 2D que se proyecta como textura en el mundo VR
-    vrCanvas = document.createElement('canvas');
-    vrCanvas.width  = 512;
-    vrCanvas.height = 128;
-
-    vrTexture = new THREE.CanvasTexture(vrCanvas);
-
-    const geo = new THREE.PlaneGeometry(1.8, 0.45);
-    const mat = new THREE.MeshBasicMaterial({
-        map: vrTexture,
-        transparent: true,
-        depthWrite: false
-    });
-
-    vrPanel = new THREE.Mesh(geo, mat);
-    // Posición inicial: frente al jugador, altura de los ojos, ligeramente arriba
-    vrPanel.position.set(0, 1.6, -1.5);
-    scene.add(vrPanel);
-}
-
-export function updateVRPanel(playerHealth, playerEnergy, enemyHealth) {
-    if (!vrCanvas || !vrTexture) return;
-
-    const ctx = vrCanvas.getContext('2d');
-    ctx.clearRect(0, 0, vrCanvas.width, vrCanvas.height);
-
-    // Fondo semitransparente
-    ctx.fillStyle = 'rgba(0,0,0,0.55)';
-    roundRect(ctx, 0, 0, vrCanvas.width, vrCanvas.height, 14);
-    ctx.fill();
-
-    const barH  = 18;
-    const barW  = 190;
-    const startY = 18;
-
-    // ── JUGADOR (izquierda) ──────────────────────────────
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 14px Arial';
-    ctx.fillText('JUGADOR', 16, startY);
-
-    // HP
-    drawBar(ctx, 16, startY + 6, barW, barH, playerHealth / 100, '#e74c3c', '#333');
-    ctx.fillStyle = '#fff';
-    ctx.font = '11px Arial';
-    ctx.fillText(`HP: ${Math.max(0, Math.round(playerHealth))}`, 22, startY + 20);
-
-    // Energía
-    drawBar(ctx, 16, startY + 30, barW, barH, Math.min(playerEnergy, 100) / 100, '#f1c40f', '#333');
-    ctx.fillStyle = '#fff';
-    ctx.fillText(`EN: ${Math.min(100, Math.round(playerEnergy))}`, 22, startY + 44);
-
-    // ── ENEMIGO (derecha) ────────────────────────────────
-    const ex = vrCanvas.width - barW - 16;
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 14px Arial';
-    ctx.fillText('ENEMIGO', ex, startY);
-
-    drawBar(ctx, ex, startY + 6, barW, barH, enemyHealth / 100, '#e74c3c', '#333');
-    ctx.fillStyle = '#fff';
-    ctx.font = '11px Arial';
-    ctx.fillText(`HP: ${Math.max(0, Math.round(enemyHealth))}`, ex + 6, startY + 20);
-
-    // ── Controles hint ───────────────────────────────────
-    ctx.fillStyle = 'rgba(255,255,255,0.55)';
-    ctx.font = '10px Arial';
-    ctx.textAlign = 'center';
-    ctx.fillText('X:Puño  Y:Patada  B:Bloquear  A:Estado  JoyL:Mover', vrCanvas.width / 2, vrCanvas.height - 10);
-    ctx.textAlign = 'left';
-
-    vrTexture.needsUpdate = true;
-}
-
-function drawBar(ctx, x, y, w, h, pct, colorFill, colorBg) {
-    ctx.fillStyle = colorBg;
-    roundRect(ctx, x, y, w, h, 5);
-    ctx.fill();
-    ctx.fillStyle = colorFill;
-    roundRect(ctx, x, y, Math.max(0, w * pct), h, 5);
-    ctx.fill();
-}
-
-function roundRect(ctx, x, y, w, h, r) {
-    ctx.beginPath();
-    ctx.moveTo(x + r, y);
-    ctx.lineTo(x + w - r, y);
-    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
-    ctx.lineTo(x + w, y + h - r);
-    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
-    ctx.lineTo(x + r, y + h);
-    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
-    ctx.lineTo(x, y + r);
-    ctx.quadraticCurveTo(x, y, x + r, y);
-    ctx.closePath();
-}
-
-// ─────────────────────────────
-// INIT SCENE
-// ─────────────────────────────
 export function initScene() {
-
+    // 1. Creación de la escena y fondo
     scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x1a1a2e); // Color oscuro para ambientación de arena
+    scene.fog = new THREE.FogExp2(0x1a1a2e, 0.015);
 
-    camera = new THREE.PerspectiveCamera(
-        75,
-        window.innerWidth / window.innerHeight,
-        0.1,
-        1000
-    );
-    camera.position.set(0, 5, 10);
+    // 2. Configuración de la cámara básica (WebXR controlará el rig en VR)
+    camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    scene.add(camera);
 
+    // 3. Inicialización del renderizador con soporte de sombras y WebXR
     renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.shadowMap.enabled = true;
-
-    // ── WebXR ───────────────────────────────────────────
-    renderer.xr.enabled = true;
-
-    // Referencia de espacio: local-floor para que el suelo virtual
-    // coincida con el suelo físico (Meta Quest 3 boundary)
-    renderer.xr.setReferenceSpaceType('local-floor');
-
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     document.body.appendChild(renderer.domElement);
 
-    window.addEventListener('resize', () => {
-        camera.aspect = window.innerWidth / window.innerHeight;
-        camera.updateProjectionMatrix();
-        renderer.setSize(window.innerWidth, window.innerHeight);
+    // 4. Iluminación dinámica de la arena de combate
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+    scene.add(ambientLight);
+
+    const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+    dirLight.position.set(10, 20, 10);
+    dirLight.castShadow = true;
+    dirLight.shadow.mapSize.width = 2048;
+    dirLight.shadow.mapSize.height = 2048;
+    dirLight.shadow.camera.near = 0.5;
+    dirLight.shadow.camera.far = 50;
+    const d = 30;
+    dirLight.shadow.camera.left = -d;
+    dirLight.shadow.camera.right = d;
+    dirLight.shadow.camera.top = d;
+    dirLight.shadow.camera.bottom = -d;
+    dirLight.shadow.bias = -0.0005;
+    scene.add(dirLight);
+
+    // Luz de apoyo para acentuar el relieve de los luchadores
+    const rimLight = new THREE.DirectionalLight(0x00aaff, 0.4);
+    rimLight.position.set(-10, 10, -10);
+    scene.add(rimLight);
+
+    // 5. Creación de una superficie de suelo base provisional (en caso de que falte el escenario)
+    const floorGeo = new THREE.PlaneGeometry(60, 60);
+    const floorMat = new THREE.MeshStandardMaterial({ 
+        color: 0x2e2e3e, 
+        roughness: 0.8, 
+        metalness: 0.2 
     });
+    const floor = new THREE.Mesh(floorGeo, floorMat);
+    floor.rotation.x = -Math.PI / 2;
+    floor.receiveShadow = true;
+    scene.add(floor);
+    colliders.push(floor); // El suelo actúa como colisionador principal
 
-    physics = new PhysicsWorld(scene, () => worldColliders);
+    // 6. Inicialización del motor de físicas analítico
+    physics = new PhysicsWorld(scene, () => colliders);
 
-    initLights();
-    initAudio();
-    loadHDR();
-    loadMap();
-    initVRPanel();
+    // Manejo adaptativo del tamaño de la pantalla
+    window.addEventListener('resize', onWindowResize);
 }
 
-// ─────────────────────────────
-// LIGHTS
-// ─────────────────────────────
-function initLights() {
-    const sun = new THREE.DirectionalLight(0xffffff, 1.2);
-    sun.position.set(10, 20, 10);
-    sun.castShadow = true;
-    scene.add(sun);
-    scene.add(new THREE.AmbientLight(0xffffff, 0.3));
-}
+// ─────────────────────────────────────────────────────────────
+// CONFIGURACIÓN DEL HUD 3D DIEGÉTICO PARA WEBXR
+// ─────────────────────────────────────────────────────────────
+export function initVRHUD(cameraRef) {
+    vrHUD = new THREE.Group();
+    
+    // Posicionamiento ergonómico: centrado, ligeramente abajo y a 1.2 metros del visor
+    vrHUD.position.set(0, -0.25, -1.2);
+    cameraRef.add(vrHUD);
 
-// ─────────────────────────────
-// HDR
-// ─────────────────────────────
-function loadHDR() {
-    new RGBELoader().load('./assets/textures/sky.hdr', (tex) => {
-        tex.mapping = THREE.EquirectangularReflectionMapping;
-        scene.background = tex;
-        scene.environment = tex;
-    });
-}
+    const bgMaterial = new THREE.MeshBasicMaterial({ color: 0x111111, transparent: true, opacity: 0.75 });
+    const pHealthMat = new THREE.MeshBasicMaterial({ color: 0x00ff66 }); // Verde neón
+    const pEnergyMat = new THREE.MeshBasicMaterial({ color: 0x00aaff }); // Azul eléctrico
+    const eHealthMat = new THREE.MeshBasicMaterial({ color: 0xff3333 }); // Rojo carmesí
 
-// ─────────────────────────────
-// AUDIO INIT
-// ─────────────────────────────
-function initAudio() {
-    listener = new THREE.AudioListener();
-    camera.add(listener);
+    // Función interna encargada de construir barras con pivote izquierdo corregido
+    function createBar(yPos, colorMat, width = 0.8, height = 0.05) {
+        const bgGeo = new THREE.PlaneGeometry(width, height);
+        const bgMesh = new THREE.Mesh(bgGeo, bgMaterial);
+        bgMesh.position.set(0, yPos, 0);
 
-    audioLoader = new THREE.AudioLoader();
+        const fgGeo = new THREE.PlaneGeometry(width, height);
+        fgGeo.translate(width / 2, 0, 0); // Desplazar geometría para fijar el pivote de escalado
+        
+        const fgMesh = new THREE.Mesh(fgGeo, colorMat);
+        fgMesh.position.set(-width / 2, 0, 0.002); // Desplazamiento en Z mínimo para prevenir z-fighting
 
-    bgSound  = new THREE.Audio(listener);
-    hitSound = new THREE.Audio(listener);
-
-    audioLoader.load('./assets/audio/bg.mp3', (buffer) => {
-        bgSound.setBuffer(buffer);
-        bgSound.setLoop(true);
-        bgSound.setVolume(0.4);
-        bgReady = true;
-        if (audioUnlocked) bgSound.play();
-    });
-
-    audioLoader.load('./assets/audio/hit.mp3', (buffer) => {
-        hitSound.setBuffer(buffer);
-        hitSound.setVolume(0.8);
-    });
-}
-
-export function unlockAudio() {
-    const ctx = listener?.context;
-    if (!ctx) return;
-    if (ctx.state === 'suspended') {
-        ctx.resume().then(() => {
-            audioUnlocked = true;
-            if (bgReady) bgSound.play();
-        });
-    } else {
-        audioUnlocked = true;
-        if (bgReady) bgSound.play();
+        bgMesh.add(fgMesh);
+        vrHUD.add(bgMesh);
+        
+        return fgMesh;
     }
+
+    // HUD del Jefe/Enemigo (Superior y prominente)
+    enemyHealthBar = createBar(0.20, eHealthMat, 1.1, 0.05); 
+    
+    // HUD del Jugador (Inferior y compacto)
+    playerHealthBar = createBar(-0.08, pHealthMat, 0.7, 0.035);
+    playerEnergyBar = createBar(-0.13, pEnergyMat, 0.7, 0.015);
 }
 
-// ─────────────────────────────
-// MAPA
-// ─────────────────────────────
-function loadMap() {
-    const loader = new GLTFLoader();
+export function updateVRPanel(pHealth, pEnergy, eHealth) {
+    if (!vrHUD) return;
 
-    loader.load('./assets/models/escenario.glb', (gltf) => {
-        const map = gltf.scene;
+    // Acotación estricta de parámetros entre 0 y 100%
+    const pHP = Math.max(0, Math.min(100, pHealth));
+    const pEP = Math.max(0, Math.min(100, pEnergy));
+    const eHP = Math.max(0, Math.min(100, eHealth));
 
-        const box = new THREE.Box3().setFromObject(map);
-        const size = new THREE.Vector3();
-        box.getSize(size);
-
-        const maxSize  = Math.max(size.x, size.z);
-        const TARGET_SIZE = 80;
-        const scale    = TARGET_SIZE / maxSize;
-
-        map.scale.setScalar(scale);
-
-        const center = new THREE.Vector3();
-        box.getCenter(center);
-        map.position.sub(center.multiplyScalar(scale));
-
-        worldColliders.length = 0;
-        map.traverse((o) => {
-            if (o.isMesh) {
-                o.castShadow    = true;
-                o.receiveShadow = true;
-                worldColliders.push(o);
-            }
-        });
-
-        scene.add(map);
-        console.log('[ENGINE] Map loaded OK | Colliders:', worldColliders.length);
-    });
+    // Modificación de la escala escalar horizontal desde el pivote izquierdo
+    if (playerHealthBar) playerHealthBar.scale.x = pHP / 100;
+    if (playerEnergyBar) playerEnergyBar.scale.x = pEP / 100;
+    if (enemyHealthBar) enemyHealthBar.scale.x = eHP / 100;
 }
 
-// ─────────────────────────────
-// CAMERA SYSTEM
-// En modo VR la cámara ES el headset → no la movemos manualmente.
-// En modo desktop seguimos al jugador en tercera persona.
-// ─────────────────────────────
+// ─────────────────────────────────────────────────────────────
+// FUNCIONES AUXILIARES Y SISTEMA DE AUDIO
+// ─────────────────────────────────────────────────────────────
 export function updateCamera(player, enemy) {
-    // En VR la cámara la controla el headset; no hacemos nada aquí.
-    if (renderer.xr.isPresenting) {
-
-        // Solo actualizamos el panel de UI VR para que flote frente al jugador
-        if (vrPanel && player?.mesh) {
-            const headPos = player.mesh.position.clone();
-            headPos.y += 5.5; // altura cabeza
-
-            // El panel sigue la posición del jugador en el mundo (no la cámara XR)
-            // y apunta siempre hacia el enemigo o hacia adelante
-            vrPanel.position.copy(headPos).add(new THREE.Vector3(0, 0.8, 0));
-
-            if (enemy?.mesh) {
-                vrPanel.lookAt(enemy.mesh.position);
-            }
-        }
-        return;
-    }
-
-    // ── Cámara Desktop (primera persona mirando al enemigo) ──
-    if (!player?.mesh || !enemy?.mesh) return;
-
-    const headHeight = 5.5;
-    const dir = new THREE.Vector3()
-        .subVectors(enemy.mesh.position, player.mesh.position);
-    dir.y = 0;
-    if (dir.length() > 0) dir.normalize();
-
-    const cameraPos = player.mesh.position.clone()
-        .add(new THREE.Vector3(0, headHeight, 0))
-        .add(dir.clone().multiplyScalar(1.0));
-
-    const targetLookAt = enemy.mesh.position.clone()
-        .add(new THREE.Vector3(0, headHeight - 0.5, 0));
-
-    camera.position.lerp(cameraPos, 0.2);
-    camera.lookAt(targetLookAt);
+    // En modo VR nativo, las transformaciones de la cámara se vinculan automáticamente al visor
+    // Si no se está presentando en VR, se puede añadir una lógica de seguimiento alternativa aquí
+    if (renderer && renderer.xr.isPresenting) return;
 }
 
-export function render() {
-    renderer.render(scene, camera);
+export function playHitSound() {
+    // Sistema nativo de reproducción de ráfagas de sonido sin interrupción de hilos
+    const hitAudio = new Audio('./assets/audio/hit.mp3'); 
+    hitAudio.volume = 0.6;
+    hitAudio.play().catch(err => {
+        // Fallback silencioso en consola en caso de restricciones de autoplay del navegador
+        console.log('[AUDIO] Interacción previa requerida para reproducir efectos.');
+    });
+}
+
+function onWindowResize() {
+    if (!camera || !renderer) return;
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
 }
