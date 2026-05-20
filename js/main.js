@@ -7,14 +7,11 @@ import { initControls, updateVRControls } from './controls.js';
 import { updateUI } from './ui.js';
 
 const clock = new THREE.Clock();
-
-// --- GESTOR DE CARGA REAL PARA GITHUB PAGES ---
 const loadingManager = new THREE.LoadingManager();
 
 initScene();
 initControls(renderer);
 initPlayer();
-// Aquí le pasamos el manager al enemigo para que sepa cuándo terminan de descargar los .fbx
 initEnemy(loadingManager);
 
 // WebXR
@@ -35,7 +32,6 @@ renderer.xr.addEventListener('sessionend', () => {
     }
 });
 
-// Estado de juego e interfaz
 let gameState = 'loading';
 const loadingScreen = document.getElementById('loadingScreen');
 const loadingProgress = document.getElementById('loadingProgress');
@@ -45,7 +41,6 @@ const volumeSlider = document.getElementById('volumeSlider');
 const bgMusic = document.getElementById('bgMusic');
 const uiLayer = document.getElementById('ui');
 
-// Marcador persistente
 let playerWins = parseInt(localStorage.getItem('arena_playerWins') || '0');
 let enemyWins = parseInt(localStorage.getItem('arena_enemyWins') || '0');
 
@@ -56,7 +51,6 @@ function updateScoreDisplay() {
 }
 updateScoreDisplay();
 
-// Conectamos el LoadingManager con la barra HTML
 loadingManager.onProgress = function (url, itemsLoaded, itemsTotal) {
     const progress = (itemsLoaded / itemsTotal) * 100;
     if(loadingProgress) loadingProgress.style.width = `${progress}%`;
@@ -87,13 +81,11 @@ playBtn.addEventListener('click', () => {
     gameState = 'playing';
 });
 
-// Loop principal
 function animate() {
     const delta = clock.getDelta();
     
     updateVRControls(renderer);
 
-    // Corregimos los argumentos para que coincidan con la exportación de player.js
     if (player?.mesh) updatePlayer(player, camera, delta);
     if (enemy?.mesh) updateEnemy(delta, player, gameState === 'playing');
 

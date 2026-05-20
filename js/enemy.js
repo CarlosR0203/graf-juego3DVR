@@ -16,7 +16,6 @@ export let enemy = {
     currentAction: null
 };
 
-// Recibimos el manager como parámetro desde main.js
 export function initEnemy(manager = null) {
     const loader = new FBXLoader(manager);
     

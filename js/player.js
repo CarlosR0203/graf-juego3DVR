@@ -1,20 +1,21 @@
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.158/build/three.module.js';
 import { FBXLoader } from 'https://cdn.jsdelivr.net/npm/three@0.158/examples/jsm/loaders/FBXLoader.js';
-import { scene, camera, physics, playHitSound } from './scene.js';
+import { scene, physics, playHitSound } from './scene.js';
 import { vrInput } from './controls.js';
 import { enemy } from './enemy.js';
 
 export const CHAR_SCALE = 0.0111; 
-export const CHAR_HEIGHT = 1.7; // Altura estándar de ojos para el modo de escritorio
+export const CHAR_HEIGHT = 2.0; 
 export const CHAR_RADIUS = 0.4; 
 
 export let player = {
     mesh: null,
-    rig: new THREE.Group(), // Contenedor oficial de la perspectiva VR
     speed: 5,
     health: 100,
     energy: 0,
     isBlocking: false,
+    isSpecial: false,
+    specialTimer: 0,
     attackCooldown: 0,
     currentState: 'idle',
     mixer: null,
@@ -25,31 +26,19 @@ export let player = {
 export function initPlayer() {
     const loader = new FBXLoader();
     
-    scene.add(player.rig);
-    player.rig.add(camera); // La cámara se vuelve la cabeza del jugador de forma nativa
-    
-    // SOLUCIÓN VR: El rig base se fija estrictamente en el suelo (y = 0).
-    // WebXR calculará la altura real desde este origen.
-    player.rig.position.set(0, 0, 3); 
-    
-    // Ajuste de cámara para pruebas locales en navegador de escritorio
-    camera.position.set(0, CHAR_HEIGHT, 0);
-
     loader.load('./assets/models/Standing Idle To Fight Idle.fbx', (object) => {
         player.mesh = object;
         player.mesh.scale.setScalar(CHAR_SCALE);
-        player.mesh.position.set(0, 0, 0);
+        player.mesh.position.set(-3, 20, 0);
         
-        // En primera persona ocultamos la malla propia para evitar colisiones visuales con la cámara
         player.mesh.traverse((child) => {
             if (child.isMesh) {
-                child.visible = false; 
                 child.castShadow = true;
                 child.receiveShadow = true;
             }
         });
         
-        player.rig.add(player.mesh); 
+        scene.add(player.mesh);
         
         player.mixer = new THREE.AnimationMixer(player.mesh);
         const idleAction = player.mixer.clipAction(object.animations[0]);
@@ -68,9 +57,7 @@ function loadAnimation(loader, path, name, isAttack = false) {
     loader.load(path, (animObject) => {
         if (!animObject.animations || animObject.animations.length === 0) return;
         const anim = animObject.animations[0];
-        anim.tracks.forEach(track => {
-            track.name = track.name.replace(/.*mixamorig/i, 'mixamorig');
-        });
+        anim.tracks.forEach(track => { track.name = track.name.replace(/.*mixamorig/i, 'mixamorig'); });
         const action = player.mixer.clipAction(anim);
         if (isAttack) {
             action.setLoop(THREE.LoopOnce);
@@ -88,25 +75,23 @@ function fadeToAction(name, duration = 0.2) {
     player.currentAction = nextAction;
 }
 
-export function updatePlayer(playerRef, cameraRef, delta) {
+export function updatePlayer(playerRef, camera, delta) {
     if (!playerRef || !playerRef.mesh) return;
     if (playerRef.mixer) playerRef.mixer.update(delta);
 
     const speed = vrInput.run ? playerRef.speed * 2 : playerRef.speed;
     const moveSpeed = speed * delta;
 
-    // Obtención del vector direccional según la orientación real del casco
     const direction = new THREE.Vector3();
-    cameraRef.getWorldDirection(direction);
+    camera.getWorldDirection(direction);
     direction.y = 0; 
     direction.normalize();
 
     const right = new THREE.Vector3();
     right.crossVectors(direction, new THREE.Vector3(0, 1, 0)).normalize();
 
-    // Desplazamiento del Rig completo por el plano horizontal de la arena
-    playerRef.rig.position.addScaledVector(direction, -vrInput.moveY * moveSpeed);
-    playerRef.rig.position.addScaledVector(right, vrInput.moveX * moveSpeed);
+    playerRef.mesh.position.addScaledVector(direction, -vrInput.moveY * moveSpeed);
+    playerRef.mesh.position.addScaledVector(right, vrInput.moveX * moveSpeed);
 
     if (playerRef.attackCooldown > 0) {
         playerRef.attackCooldown -= delta;
@@ -144,35 +129,48 @@ export function updatePlayer(playerRef, cameraRef, delta) {
     if (canAct && (Math.abs(vrInput.moveX) > 0 || Math.abs(vrInput.moveY) > 0)) {
         targetAnimation = 'walk';
         playerRef.currentState = 'walk';
+        
+        const move = new THREE.Vector3();
+        move.addScaledVector(direction, -vrInput.moveY);
+        move.addScaledVector(right, vrInput.moveX);
+        move.normalize();
+
+        const targetRotation = Math.atan2(move.x, move.z);
+        playerRef.mesh.rotation.y += (targetRotation - playerRef.mesh.rotation.y) * 0.15;
     }
 
     fadeToAction(targetAnimation);
-    groundSnap(playerRef.rig); 
+    groundSnap(playerRef.mesh);
 }
 
 export function groundSnap(mesh) {
-    if (mesh.position.y !== 0) {
-        mesh.position.y = 0;
+    if (!physics?.raycaster && typeof physics.getColliders !== 'function') return;
+    const origin = mesh.position.clone();
+    origin.y += 2; 
+    physics.raycaster.set(origin, new THREE.Vector3(0, -1, 0));
+    physics.raycaster.far = 100; 
+    const hits = physics.raycaster.intersectObjects(physics.getColliders(), true);
+    if (hits.length > 0) {
+        mesh.position.y = hits[0].point.y;
     }
 }
 
 export function getPlayerAABB() {
     if (!player.mesh) return null;
-    const pos = player.rig.position; 
+    const pos = player.mesh.position;
     return new THREE.Box3(
         new THREE.Vector3(pos.x - CHAR_RADIUS, pos.y, pos.z - CHAR_RADIUS),
         new THREE.Vector3(pos.x + CHAR_RADIUS, pos.y + CHAR_HEIGHT, pos.z + CHAR_RADIUS)
     );
 }
 
-// Lógica de ataque cuerpo a cuerpo adaptada a la proximidad del Rig de primera persona
 function executeAttack(damageValue, cooldownTime) {
     player.attackCooldown = cooldownTime;
     playHitSound();
 
     if (enemy && enemy.mesh) {
-        const attackReach = CHAR_RADIUS * 2 + 1.2;
-        const dist = player.rig.position.distanceTo(enemy.mesh.position);
+        const attackReach = CHAR_RADIUS * 2 + 0.5;
+        const dist = player.mesh.position.distanceTo(enemy.mesh.position);
         
         if (dist < attackReach) {
             if (enemy.isBlocking) {
