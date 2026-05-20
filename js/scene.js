@@ -1,42 +1,157 @@
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.158/build/three.module.js';
 import { RGBELoader } from 'https://cdn.jsdelivr.net/npm/three@0.158/examples/jsm/loaders/RGBELoader.js';
 import { GLTFLoader } from 'https://cdn.jsdelivr.net/npm/three@0.158/examples/jsm/loaders/GLTFLoader.js';
-import { XRControllerModelFactory } from 'https://cdn.jsdelivr.net/npm/three@0.158/examples/jsm/webxr/XRControllerModelFactory.js';
 import { PhysicsWorld } from './PhysicsWorld.js';
-import { CHAR_HEIGHT } from './player.js';
 
-export let scene, camera, renderer, physics, vrRig;
+export let scene, camera, renderer;
+export let physics;
 export let worldColliders = [];
-export let controller1, controller2;
-export let controllerGrip1, controllerGrip2;
 
-export function getPhysics() { return physics; }
-
-let listener, audioLoader, bgSound, hitSound;
-let audioUnlocked = false, bgReady = false;
+// ─────────────────────────────
+// AUDIO
+// ─────────────────────────────
+let listener;
+let audioLoader;
+let bgSound;
+let hitSound;
+let audioUnlocked = false;
+let bgReady = false;
 
 export function playHitSound() {
-    if (hitSound?.buffer) {
-        hitSound.stop();
-        hitSound.play();
-    }
+    if (!hitSound?.buffer) return;
+    hitSound.stop();
+    hitSound.play();
 }
 
-export function initScene() {
-    scene = new THREE.Scene();
-    
-    vrRig = new THREE.Group();
-    vrRig.scale.setScalar(3.0); // Tu altura real se multiplica x3 para que sientas la escala correcta
-    scene.add(vrRig);
+// ─────────────────────────────
+// PANEL VR (UI 3D en mundo)
+// ─────────────────────────────
+let vrPanel = null;
+let vrCanvas = null;
+let vrTexture = null;
 
-    camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.35, 1500);
-    camera.position.set(0, CHAR_HEIGHT * 0.92, 0); 
-    vrRig.add(camera);
+export function initVRPanel() {
+    // Canvas 2D que se proyecta como textura en el mundo VR
+    vrCanvas = document.createElement('canvas');
+    vrCanvas.width  = 512;
+    vrCanvas.height = 128;
+
+    vrTexture = new THREE.CanvasTexture(vrCanvas);
+
+    const geo = new THREE.PlaneGeometry(1.8, 0.45);
+    const mat = new THREE.MeshBasicMaterial({
+        map: vrTexture,
+        transparent: true,
+        depthWrite: false
+    });
+
+    vrPanel = new THREE.Mesh(geo, mat);
+    // Posición inicial: frente al jugador, altura de los ojos, ligeramente arriba
+    vrPanel.position.set(0, 1.6, -1.5);
+    scene.add(vrPanel);
+}
+
+export function updateVRPanel(playerHealth, playerEnergy, enemyHealth) {
+    if (!vrCanvas || !vrTexture) return;
+
+    const ctx = vrCanvas.getContext('2d');
+    ctx.clearRect(0, 0, vrCanvas.width, vrCanvas.height);
+
+    // Fondo semitransparente
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    roundRect(ctx, 0, 0, vrCanvas.width, vrCanvas.height, 14);
+    ctx.fill();
+
+    const barH  = 18;
+    const barW  = 190;
+    const startY = 18;
+
+    // ── JUGADOR (izquierda) ──────────────────────────────
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 14px Arial';
+    ctx.fillText('JUGADOR', 16, startY);
+
+    // HP
+    drawBar(ctx, 16, startY + 6, barW, barH, playerHealth / 100, '#e74c3c', '#333');
+    ctx.fillStyle = '#fff';
+    ctx.font = '11px Arial';
+    ctx.fillText(`HP: ${Math.max(0, Math.round(playerHealth))}`, 22, startY + 20);
+
+    // Energía
+    drawBar(ctx, 16, startY + 30, barW, barH, Math.min(playerEnergy, 100) / 100, '#f1c40f', '#333');
+    ctx.fillStyle = '#fff';
+    ctx.fillText(`EN: ${Math.min(100, Math.round(playerEnergy))}`, 22, startY + 44);
+
+    // ── ENEMIGO (derecha) ────────────────────────────────
+    const ex = vrCanvas.width - barW - 16;
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 14px Arial';
+    ctx.fillText('ENEMIGO', ex, startY);
+
+    drawBar(ctx, ex, startY + 6, barW, barH, enemyHealth / 100, '#e74c3c', '#333');
+    ctx.fillStyle = '#fff';
+    ctx.font = '11px Arial';
+    ctx.fillText(`HP: ${Math.max(0, Math.round(enemyHealth))}`, ex + 6, startY + 20);
+
+    // ── Controles hint ───────────────────────────────────
+    ctx.fillStyle = 'rgba(255,255,255,0.55)';
+    ctx.font = '10px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('X:Puño  Y:Patada  B:Bloquear  A:Estado  JoyL:Mover', vrCanvas.width / 2, vrCanvas.height - 10);
+    ctx.textAlign = 'left';
+
+    vrTexture.needsUpdate = true;
+}
+
+function drawBar(ctx, x, y, w, h, pct, colorFill, colorBg) {
+    ctx.fillStyle = colorBg;
+    roundRect(ctx, x, y, w, h, 5);
+    ctx.fill();
+    ctx.fillStyle = colorFill;
+    roundRect(ctx, x, y, Math.max(0, w * pct), h, 5);
+    ctx.fill();
+}
+
+function roundRect(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
+}
+
+// ─────────────────────────────
+// INIT SCENE
+// ─────────────────────────────
+export function initScene() {
+
+    scene = new THREE.Scene();
+
+    camera = new THREE.PerspectiveCamera(
+        75,
+        window.innerWidth / window.innerHeight,
+        0.1,
+        1000
+    );
+    camera.position.set(0, 5, 10);
 
     renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.shadowMap.enabled = true;
+
+    // ── WebXR ───────────────────────────────────────────
     renderer.xr.enabled = true;
+
+    // Referencia de espacio: local-floor para que el suelo virtual
+    // coincida con el suelo físico (Meta Quest 3 boundary)
+    renderer.xr.setReferenceSpaceType('local-floor');
+
     document.body.appendChild(renderer.domElement);
 
     window.addEventListener('resize', () => {
@@ -45,38 +160,29 @@ export function initScene() {
         renderer.setSize(window.innerWidth, window.innerHeight);
     });
 
-    controller1 = renderer.xr.getController(0);
-    vrRig.add(controller1);
-
-    controller2 = renderer.xr.getController(1);
-    vrRig.add(controller2);
-
-    const controllerModelFactory = new XRControllerModelFactory();
-
-    controllerGrip1 = renderer.xr.getControllerGrip(0);
-    controllerGrip1.add(controllerModelFactory.createControllerModel(controllerGrip1));
-    vrRig.add(controllerGrip1);
-
-    controllerGrip2 = renderer.xr.getControllerGrip(1);
-    controllerGrip2.add(controllerModelFactory.createControllerModel(controllerGrip2));
-    vrRig.add(controllerGrip2);
-
     physics = new PhysicsWorld(scene, () => worldColliders);
-    
+
     initLights();
     initAudio();
     loadHDR();
     loadMap();
+    initVRPanel();
 }
 
+// ─────────────────────────────
+// LIGHTS
+// ─────────────────────────────
 function initLights() {
     const sun = new THREE.DirectionalLight(0xffffff, 1.2);
-    sun.position.set(10, 40, 10);
+    sun.position.set(10, 20, 10);
     sun.castShadow = true;
     scene.add(sun);
     scene.add(new THREE.AmbientLight(0xffffff, 0.3));
 }
 
+// ─────────────────────────────
+// HDR
+// ─────────────────────────────
 function loadHDR() {
     new RGBELoader().load('./assets/textures/sky.hdr', (tex) => {
         tex.mapping = THREE.EquirectangularReflectionMapping;
@@ -85,11 +191,16 @@ function loadHDR() {
     });
 }
 
+// ─────────────────────────────
+// AUDIO INIT
+// ─────────────────────────────
 function initAudio() {
     listener = new THREE.AudioListener();
     camera.add(listener);
+
     audioLoader = new THREE.AudioLoader();
-    bgSound = new THREE.Audio(listener);
+
+    bgSound  = new THREE.Audio(listener);
     hitSound = new THREE.Audio(listener);
 
     audioLoader.load('./assets/audio/bg.mp3', (buffer) => {
@@ -120,16 +231,23 @@ export function unlockAudio() {
     }
 }
 
+// ─────────────────────────────
+// MAPA
+// ─────────────────────────────
 function loadMap() {
     const loader = new GLTFLoader();
+
     loader.load('./assets/models/escenario.glb', (gltf) => {
         const map = gltf.scene;
+
         const box = new THREE.Box3().setFromObject(map);
         const size = new THREE.Vector3();
         box.getSize(size);
-        const maxSize = Math.max(size.x, size.z);
-        const TARGET_SIZE = 120; 
-        const scale = TARGET_SIZE / maxSize;
+
+        const maxSize  = Math.max(size.x, size.z);
+        const TARGET_SIZE = 80;
+        const scale    = TARGET_SIZE / maxSize;
+
         map.scale.setScalar(scale);
 
         const center = new THREE.Vector3();
@@ -139,39 +257,62 @@ function loadMap() {
         worldColliders.length = 0;
         map.traverse((o) => {
             if (o.isMesh) {
-                o.castShadow = true;
+                o.castShadow    = true;
                 o.receiveShadow = true;
                 worldColliders.push(o);
             }
         });
+
         scene.add(map);
+        console.log('[ENGINE] Map loaded OK | Colliders:', worldColliders.length);
     });
 }
 
-export function updateCamera(player) {
-    if (!player?.mesh) return;
-
+// ─────────────────────────────
+// CAMERA SYSTEM
+// En modo VR la cámara ES el headset → no la movemos manualmente.
+// En modo desktop seguimos al jugador en tercera persona.
+// ─────────────────────────────
+export function updateCamera(player, enemy) {
+    // En VR la cámara la controla el headset; no hacemos nada aquí.
     if (renderer.xr.isPresenting) {
-        // En VR, tu avatar (el mesh) es arrastrado hacia la posición real de tu cabeza
-        const headPos = new THREE.Vector3();
-        camera.getWorldPosition(headPos);
-        
-        player.mesh.position.x = headPos.x;
-        player.mesh.position.z = headPos.z;
-        
-        // Hacemos que el cuerpo apunte hacia donde tú miras
-        const headDir = new THREE.Vector3();
-        camera.getWorldDirection(headDir);
-        player.mesh.rotation.y = Math.atan2(headDir.x, headDir.z);
-        
-        player.mesh.visible = true; 
+
+        // Solo actualizamos el panel de UI VR para que flote frente al jugador
+        if (vrPanel && player?.mesh) {
+            const headPos = player.mesh.position.clone();
+            headPos.y += 5.5; // altura cabeza
+
+            // El panel sigue la posición del jugador en el mundo (no la cámara XR)
+            // y apunta siempre hacia el enemigo o hacia adelante
+            vrPanel.position.copy(headPos).add(new THREE.Vector3(0, 0.8, 0));
+
+            if (enemy?.mesh) {
+                vrPanel.lookAt(enemy.mesh.position);
+            }
+        }
         return;
     }
 
-    // Cámara clásica de PC (Tercera Persona)
-    const offset = new THREE.Vector3(0, CHAR_HEIGHT * 0.8, 12);
-    offset.applyQuaternion(player.mesh.quaternion);
-    const target = player.mesh.position.clone().add(offset);
-    camera.position.lerp(target, 0.1);
-    camera.lookAt(player.mesh.position.clone().add(new THREE.Vector3(0, CHAR_HEIGHT * 0.7, 0)));
+    // ── Cámara Desktop (primera persona mirando al enemigo) ──
+    if (!player?.mesh || !enemy?.mesh) return;
+
+    const headHeight = 5.5;
+    const dir = new THREE.Vector3()
+        .subVectors(enemy.mesh.position, player.mesh.position);
+    dir.y = 0;
+    if (dir.length() > 0) dir.normalize();
+
+    const cameraPos = player.mesh.position.clone()
+        .add(new THREE.Vector3(0, headHeight, 0))
+        .add(dir.clone().multiplyScalar(1.0));
+
+    const targetLookAt = enemy.mesh.position.clone()
+        .add(new THREE.Vector3(0, headHeight - 0.5, 0));
+
+    camera.position.lerp(cameraPos, 0.2);
+    camera.lookAt(targetLookAt);
+}
+
+export function render() {
+    renderer.render(scene, camera);
 }
