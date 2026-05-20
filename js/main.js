@@ -56,33 +56,28 @@ function updateScoreDisplay() {
 updateScoreDisplay();
 
 // Simular carga
-let progress = 0;
-const loadInterval = setInterval(() => {
-    progress += Math.random() * 15;
-    if (progress >= 100) {
-        progress = 100;
-        clearInterval(loadInterval);
-        setTimeout(() => {
-            loadingScreen.classList.add('hidden');
-            startScreen.classList.remove('hidden');
-            gameState = 'menu';
-        }, 500);
-    }
-    loadingProgress.style.width = `${progress}%`;
-}, 200);
 
-volumeSlider.addEventListener('input', (e) => {
-    bgMusic.volume = e.target.value;
-});
+export const loadingManager = new THREE.LoadingManager();
 
-playBtn.addEventListener('click', () => {
-    startScreen.classList.add('hidden');
-    if (!renderer.xr.isPresenting) {
-        uiLayer.classList.remove('hidden');
-    }
-    bgMusic.play().catch(e => console.log('Autoplay bloqueado', e));
-    gameState = 'playing';
-});
+// El gestor actualiza la barra automáticamente según los archivos descargados
+loadingManager.onProgress = function (url, itemsLoaded, itemsTotal) {
+    const actualProgress = (itemsLoaded / itemsTotal) * 100;
+    loadingProgress.style.width = `${actualProgress}%`;
+};
+
+// Solo cuando TODO se haya descargado se oculta la pantalla de carga
+loadingManager.onLoad = function () {
+    setTimeout(() => {
+        loadingScreen.classList.add('hidden');
+        startScreen.classList.remove('hidden');
+        gameState = 'menu';
+    }, 500);
+};
+
+// Captura errores útiles para debuggear en GitHub Pages
+loadingManager.onError = function (url) {
+    console.error('Error de red al intentar cargar:', url);
+};
 
 // ── Loop principal ───────────────────────────────────────────
 function animate() {

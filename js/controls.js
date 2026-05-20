@@ -1,87 +1,96 @@
+// controls.js
 export let keys = {};
-
-// Estado del botón E (estado/especial) - toggle
-let ePressedLastFrame = false;
 export let stateToggle = false;
+let ePressedLastFrame = false;
+
+// Objeto unificado que consume player.js para WebXR de manera nativa
+export let vrInput = {
+    moveX: 0,
+    moveY: 0,
+    run: false,
+    attack: false,
+    kick: false,
+    block: false
+};
 
 export function initControls(renderer) {
     window.addEventListener('keydown', (e) => {
         keys[e.key.toLowerCase()] = true;
-
-        // Toggle para tecla E (estado)
         if (e.key.toLowerCase() === 'e') {
             stateToggle = !stateToggle;
         }
     });
-    window.addEventListener('keyup', (e) => keys[e.key.toLowerCase()] = false);
+    window.addEventListener('keyup', (e) => {
+        keys[e.key.toLowerCase()] = false;
+    });
 }
 
-/**
- * Mapa de botones Meta Quest 3 (WebXR Gamepad API):
- *
- * MANO IZQUIERDA:
- *   buttons[0] = Trigger (índice)
- *   buttons[1] = Grip (agarre)
- *   buttons[2] = Joystick (clic)
- *   buttons[3] = X
- *   buttons[4] = Y
- *   axes[2]    = Joystick X (izquierda/derecha)
- *   axes[3]    = Joystick Y (adelante/atrás)
- *
- * MANO DERECHA:
- *   buttons[0] = Trigger (índice)
- *   buttons[1] = Grip (agarre)
- *   buttons[2] = Joystick (clic)
- *   buttons[3] = A
- *   buttons[4] = B
- *   axes[2]    = Joystick X
- *   axes[3]    = Joystick Y
- */
 export function updateVRControls(renderer) {
     if (!renderer.xr.isPresenting) return;
 
-    // Limpiar teclas VR cada frame
-    keys['w']     = false;
-    keys['s']     = false;
-    keys['a']     = false;
-    keys['d']     = false;
-    keys['k']     = false;  // atacar (puño)
-    keys['l']     = false;  // patada
-    keys['b']     = false;  // bloquear
-    keys['shift'] = false;  // correr
+    // Limpieza interna del mapa de teclado clásico en cada cuadro
+    keys['w'] = false;
+    keys['s'] = false;
+    keys['a'] = false;
+    keys['d'] = false;
+    keys['k'] = false;
+    keys['l'] = false;
+    keys['b'] = false;
+    keys['shift'] = false;
+
+    // Reinicio de los valores de entrada de realidad virtual
+    vrInput.moveX = 0;
+    vrInput.moveY = 0;
+    vrInput.run = false;
+    vrInput.attack = false;
+    vrInput.kick = false;
+    vrInput.block = false;
 
     const session = renderer.xr.getSession();
     if (!session) return;
 
     for (const source of session.inputSources) {
         if (!source.gamepad) continue;
-
         const gp = source.gamepad;
 
-        // ── MANO IZQUIERDA → Movimiento ──────────────────────────
+        // MANO IZQUIERDA → Control de movimiento analógico y esprintar
         if (source.handedness === 'left') {
             const xAxis = gp.axes[2] ?? 0;
             const yAxis = gp.axes[3] ?? 0;
             const deadzone = 0.25;
 
-            if (yAxis < -deadzone) keys['w'] = true;  // Joystick adelante
-            if (yAxis >  deadzone) keys['s'] = true;  // Joystick atrás
-            if (xAxis < -deadzone) keys['a'] = true;  // Joystick izquierda
-            if (xAxis >  deadzone) keys['d'] = true;  // Joystick derecha
+            // Sincronización con el mapa de teclas convencional
+            if (yAxis < -deadzone) keys['w'] = true;
+            if (yAxis > deadzone) keys['s'] = true;
+            if (xAxis < -deadzone) keys['a'] = true;
+            if (xAxis > deadzone) keys['d'] = true;
 
-            // Trigger izquierdo = correr (sprint)
-            if (gp.buttons[0]?.pressed) keys['shift'] = true;
+            // Mapeo analógico real para evitar transiciones bruscas en VR
+            vrInput.moveX = Math.abs(xAxis) > deadzone ? xAxis : 0;
+            vrInput.moveY = Math.abs(yAxis) > deadzone ? yAxis : 0;
 
-            // Botón X (button[3]) → Atacar (puño) — mapeado como K
-            if (gp.buttons[3]?.pressed) keys['k'] = true;
+            // Trigger izquierdo asignado a correr (sprint)
+            if (gp.buttons[0]?.pressed) {
+                keys['shift'] = true;
+                vrInput.run = true;
+            }
 
-            // Botón Y (button[4]) → Patada — mapeado como L
-            if (gp.buttons[4]?.pressed) keys['l'] = true;
+            // Botón X (button[3]) → Ataque de puño (K)
+            if (gp.buttons[3]?.pressed) {
+                keys['k'] = true;
+                vrInput.attack = true;
+            }
+
+            // Botón Y (button[4]) → Patada (L)
+            if (gp.buttons[4]?.pressed) {
+                keys['l'] = true;
+                vrInput.kick = true;
+            }
         }
 
-        // ── MANO DERECHA → Acciones ───────────────────────────────
+        // MANO DERECHA → Acciones defensivas y estados de juego
         if (source.handedness === 'right') {
-            // Botón A (button[3]) → Estado/Especial — mapeado como E (toggle)
+            // Botón A (button[3]) → Toggle de estado especial (E)
             const aPressed = gp.buttons[3]?.pressed ?? false;
             if (aPressed && !ePressedLastFrame) {
                 stateToggle = !stateToggle;
@@ -91,24 +100,25 @@ export function updateVRControls(renderer) {
             }
             ePressedLastFrame = aPressed;
 
-            // Botón B (button[4]) → Bloquear — mapeado como B
-            if (gp.buttons[4]?.pressed) keys['b'] = true;
+            // Botón B (button[4]) → Acción de bloquear por defecto
+            if (gp.buttons[4]?.pressed) {
+                keys['b'] = true;
+                vrInput.block = true;
+            }
 
-            // Grip derecho (button[1]) como alternativa de bloqueo
-            if (gp.buttons[1]?.pressed) keys['b'] = true;
+            // Grip derecho (button[1]) como alternativa ergonómica de defensa
+            if (gp.buttons[1]?.pressed) {
+                keys['b'] = true;
+                vrInput.block = true;
+            }
         }
     }
 }
 
-/**
- * Devuelve un resumen del estado de los controles para debug en VR.
- */
 export function getControlsDebugInfo(renderer) {
     if (!renderer.xr.isPresenting) return null;
-
     const session = renderer.xr.getSession();
     if (!session) return null;
-
     const info = {};
     for (const source of session.inputSources) {
         if (!source.gamepad) continue;
