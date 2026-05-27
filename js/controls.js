@@ -5,6 +5,7 @@ let ePressedLastFrame = false;
 export let vrInput = {
     moveX: 0,
     moveY: 0,
+    rotateX: 0, // NUEVO: Guarda el movimiento horizontal del joystick derecho
     run: false,
     attack: false,
     kick: false,
@@ -38,6 +39,7 @@ export function updateVRControls(renderer) {
 
     vrInput.moveX = 0;
     vrInput.moveY = 0;
+    vrInput.rotateX = 0; // Reseteo en cada frame
     vrInput.run = false;
     vrInput.attack = false;
     vrInput.kick = false;
@@ -50,6 +52,7 @@ export function updateVRControls(renderer) {
         if (!source.gamepad) continue;
         const gp = source.gamepad;
 
+        // Mando Izquierdo: Movimiento y acciones secundarias
         if (source.handedness === 'left') {
             const xAxis = gp.axes[2] ?? 0;
             const yAxis = gp.axes[3] ?? 0;
@@ -77,7 +80,12 @@ export function updateVRControls(renderer) {
             }
         }
 
+        // Mando Derecho: Rotación de cámara y combate principal
         if (source.handedness === 'right') {
+            const xAxisRight = gp.axes[2] ?? 0; // Captura el movimiento horizontal del stick derecho
+            const deadzone = 0.25;
+            vrInput.rotateX = Math.abs(xAxisRight) > deadzone ? xAxisRight : 0;
+
             const aPressed = gp.buttons[3]?.pressed ?? false;
             if (aPressed && !ePressedLastFrame) {
                 stateToggle = !stateToggle;

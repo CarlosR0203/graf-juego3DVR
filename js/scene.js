@@ -2,9 +2,10 @@ import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.158/build/three.mod
 import { RGBELoader } from 'https://cdn.jsdelivr.net/npm/three@0.158/examples/jsm/loaders/RGBELoader.js';
 import { GLTFLoader } from 'https://cdn.jsdelivr.net/npm/three@0.158/examples/jsm/loaders/GLTFLoader.js';
 import { PhysicsWorld } from './PhysicsWorld.js';
+import { vrInput } from './controls.js'; // Importación requerida para leer la rotación del stick derecho
 
 export let scene, camera, renderer;
-export let cameraRig; // Rig contenedor para permitir el movimiento de la cámara en VR
+export let cameraRig; 
 export let physics;
 export let worldColliders = [];
 
@@ -124,7 +125,6 @@ export function initScene() {
     scene = new THREE.Scene();
     camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
     
-    // Inicialización del rig que contiene a la cámara
     cameraRig = new THREE.Group();
     cameraRig.add(camera);
     scene.add(cameraRig);
@@ -168,6 +168,7 @@ function loadHDR() {
     });
 }
 
+// AUDIO INIT
 function initAudio() {
     listener = new THREE.AudioListener();
     camera.add(listener);
@@ -239,13 +240,19 @@ function loadMap() {
 export function updateCamera(player, enemy) {
     if (!player?.mesh) return;
     
-    const headHeight = 5.5; // Altura coordinada de los ojos de los personajes
+    const headHeight = 5.5; // Altura coordinada de los ojos del personaje
 
     if (renderer.xr.isPresenting) {
-        // En VR: El rig sigue exactamente la posición del personaje en el plano del mapa
+        // Rotación de cámara con el stick derecho (ajuste de sensibilidad a 0.035 por frame)
+        if (vrInput.rotateX !== 0) {
+            cameraRig.rotation.y -= vrInput.rotateX * 0.035;
+        }
+
+        // Posiciona el rig en las coordenadas del jugador y lo eleva a la altura de la cabeza
         cameraRig.position.copy(player.mesh.position);
+        cameraRig.position.y += headHeight;
         
-        // Mantiene la UI flotando frente al casco
+        // Mantiene la UI flotando de forma coherente frente al jugador
         if (vrPanel) {
             const headPos = player.mesh.position.clone();
             headPos.y += headHeight; 
@@ -257,14 +264,13 @@ export function updateCamera(player, enemy) {
         return;
     }
 
-    // MODO DESKTOP: Primera persona estricta fija en la cabeza mirando al rival
+    // MODO DESKTOP
     if (!enemy?.mesh) return;
     
     const dir = new THREE.Vector3().subVectors(enemy.mesh.position, player.mesh.position);
     dir.y = 0;
     if (dir.length() > 0) dir.normalize();
     
-    // Posiciona la cámara en la cabeza con un leve desplazamiento al frente (0.35) para no renderizar el interior del propio rostro
     const cameraPos = player.mesh.position.clone()
         .add(new THREE.Vector3(0, headHeight, 0))
         .add(dir.clone().multiplyScalar(0.35));
@@ -272,7 +278,7 @@ export function updateCamera(player, enemy) {
     const targetLookAt = enemy.mesh.position.clone()
         .add(new THREE.Vector3(0, headHeight - 0.5, 0));
         
-    cameraRig.position.set(0, 0, 0); // Resetea el rig en escritorio
+    cameraRig.position.set(0, 0, 0); 
     camera.position.lerp(cameraPos, 0.2);
     camera.lookAt(targetLookAt);
 }
