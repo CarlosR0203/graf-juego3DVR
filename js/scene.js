@@ -4,6 +4,7 @@ import { GLTFLoader } from 'https://cdn.jsdelivr.net/npm/three@0.158/examples/js
 import { PhysicsWorld } from './PhysicsWorld.js';
 
 export let scene, camera, renderer;
+export let cameraRig; // Rig contenedor para permitir el movimiento de la cámara en VR
 export let physics;
 export let worldColliders = [];
 
@@ -122,7 +123,11 @@ function roundRect(ctx, x, y, w, h, r) {
 export function initScene() {
     scene = new THREE.Scene();
     camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-    camera.position.set(0, 5, 10);
+    
+    // Inicialización del rig que contiene a la cámara
+    cameraRig = new THREE.Group();
+    cameraRig.add(camera);
+    scene.add(cameraRig);
     
     renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(window.innerWidth, window.innerHeight);
@@ -232,10 +237,18 @@ function loadMap() {
 }
 
 export function updateCamera(player, enemy) {
+    if (!player?.mesh) return;
+    
+    const headHeight = 5.5; // Altura coordinada de los ojos de los personajes
+
     if (renderer.xr.isPresenting) {
-        if (vrPanel && player?.mesh) {
+        // En VR: El rig sigue exactamente la posición del personaje en el plano del mapa
+        cameraRig.position.copy(player.mesh.position);
+        
+        // Mantiene la UI flotando frente al casco
+        if (vrPanel) {
             const headPos = player.mesh.position.clone();
-            headPos.y += 5.5; 
+            headPos.y += headHeight; 
             vrPanel.position.copy(headPos).add(new THREE.Vector3(0, 0.8, 0));
             if (enemy?.mesh) {
                 vrPanel.lookAt(enemy.mesh.position);
@@ -244,20 +257,22 @@ export function updateCamera(player, enemy) {
         return;
     }
 
-    if (!player?.mesh || !enemy?.mesh) return;
+    // MODO DESKTOP: Primera persona estricta fija en la cabeza mirando al rival
+    if (!enemy?.mesh) return;
     
-    const headHeight = 5.5;
     const dir = new THREE.Vector3().subVectors(enemy.mesh.position, player.mesh.position);
     dir.y = 0;
     if (dir.length() > 0) dir.normalize();
     
+    // Posiciona la cámara en la cabeza con un leve desplazamiento al frente (0.35) para no renderizar el interior del propio rostro
     const cameraPos = player.mesh.position.clone()
         .add(new THREE.Vector3(0, headHeight, 0))
-        .add(dir.clone().multiplyScalar(1.0));
+        .add(dir.clone().multiplyScalar(0.35));
         
     const targetLookAt = enemy.mesh.position.clone()
         .add(new THREE.Vector3(0, headHeight - 0.5, 0));
         
+    cameraRig.position.set(0, 0, 0); // Resetea el rig en escritorio
     camera.position.lerp(cameraPos, 0.2);
     camera.lookAt(targetLookAt);
 }
