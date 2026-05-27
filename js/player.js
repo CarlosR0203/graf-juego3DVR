@@ -4,7 +4,7 @@ import { scene, physics, playHitSound } from './scene.js';
 import { vrInput } from './controls.js'; 
 import { enemy } from './enemy.js';
 
-export let CHAR_SCALE = 0.0111; 
+export let CHAR_SCALE = 0.1; 
 export const CHAR_HEIGHT = 6.6; 
 export const CHAR_RADIUS = 0.4;
 
