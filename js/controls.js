@@ -18,6 +18,7 @@ export function initControls(renderer) {
             stateToggle = !stateToggle;
         }
     });
+
     window.addEventListener('keyup', (e) => {
         keys[e.key.toLowerCase()] = false;
     });
@@ -66,12 +67,10 @@ export function updateVRControls(renderer) {
                 keys['shift'] = true;
                 vrInput.run = true;
             }
-
             if (gp.buttons[3]?.pressed) {
                 keys['k'] = true;
                 vrInput.attack = true;
             }
-
             if (gp.buttons[4]?.pressed) {
                 keys['l'] = true;
                 vrInput.kick = true;
@@ -92,7 +91,6 @@ export function updateVRControls(renderer) {
                 keys['b'] = true;
                 vrInput.block = true;
             }
-
             if (gp.buttons[1]?.pressed) {
                 keys['b'] = true;
                 vrInput.block = true;
@@ -105,6 +103,7 @@ export function getControlsDebugInfo(renderer) {
     if (!renderer.xr.isPresenting) return null;
     const session = renderer.xr.getSession();
     if (!session) return null;
+
     const info = {};
     for (const source of session.inputSources) {
         if (!source.gamepad) continue;

@@ -18,13 +18,13 @@ export let enemy = {
 
 export function initEnemy(manager = null) {
     const loader = new FBXLoader(manager);
-    
     loader.load('./assets/models/Enemy_Standing Idle To Fight Idle.fbx', (object) => {
         enemy.mesh = object;
         
         const box = new THREE.Box3().setFromObject(enemy.mesh);
         const size = new THREE.Vector3();
         box.getSize(size);
+        
         const targetHeight = 6.6;
         const scale = targetHeight / size.y;
         
@@ -46,9 +46,9 @@ export function initEnemy(manager = null) {
             enemy.currentAction = idleAction;
             idleAction.play();
         }
-
+        
         scene.add(enemy.mesh);
-
+        
         loadAnimation(loader, './assets/models/Enemy_Walking.fbx', 'walk');
         loadAnimation(loader, './assets/models/Enemy_Punching.fbx', 'punch', true);
         loadAnimation(loader, './assets/models/Enemy_Side Kick.fbx', 'kick', true);
@@ -89,6 +89,7 @@ function loadAnimation(loader, path, name, isAttack = false) {
 function fadeToAction(name, duration = 0.2) {
     const nextAction = enemy.actions[name];
     if (!nextAction || enemy.currentAction === nextAction) return;
+    
     nextAction.reset().fadeIn(duration).play();
     if (enemy.currentAction) enemy.currentAction.fadeOut(duration);
     enemy.currentAction = nextAction;
@@ -96,6 +97,7 @@ function fadeToAction(name, duration = 0.2) {
 
 export function updateEnemy(delta, playerRef, isPlaying = true) {
     if (!enemy.mesh) return;
+    
     if (enemy.mixer) enemy.mixer.update(delta);
     
     if (!isPlaying) {
@@ -105,6 +107,7 @@ export function updateEnemy(delta, playerRef, isPlaying = true) {
     }
     
     if (enemy.attackCooldown > 0) enemy.attackCooldown -= delta;
+    
     let targetAnimation = 'idle';
     let canAct = enemy.attackCooldown <= 0;
     
@@ -114,7 +117,7 @@ export function updateEnemy(delta, playerRef, isPlaying = true) {
         enemy.currentState = 'idle';
         enemy.isBlocking = false;
     }
-    
+
     if (playerRef && playerRef.mesh && canAct && enemy.health > 0) {
         const dist = enemy.mesh.position.distanceTo(playerRef.mesh.position);
         const dir = new THREE.Vector3().subVectors(playerRef.mesh.position, enemy.mesh.position);
@@ -125,17 +128,16 @@ export function updateEnemy(delta, playerRef, isPlaying = true) {
         enemy.mesh.rotation.y += (targetRotation - enemy.mesh.rotation.y) * 0.10;
         
         const attackReach = CHAR_RADIUS * 2 + 0.5;
+        
         if (dist > attackReach) {
             targetAnimation = 'walk';
             enemy.currentState = 'walk';
-            const next = enemy.mesh.position.clone().add(dir.clone().multiplyScalar(enemy.speed * delta));
             
+            const next = enemy.mesh.position.clone().add(dir.clone().multiplyScalar(enemy.speed * delta));
             if (physics && typeof physics.canMove === 'function') {
                 if (physics.canMove(enemy.mesh.position, dir, enemy.speed * delta)) {
                     enemy.mesh.position.copy(next);
                 }
-            } else {
-                enemy.mesh.position.copy(next);
             }
         } else {
             const actionChoice = Math.random();
@@ -171,6 +173,7 @@ export function getEnemyAABB() {
 function executeAttack(damageValue, cooldownTime, playerRef) {
     enemy.attackCooldown = cooldownTime;
     playHitSound();
+    
     if (playerRef && playerRef.health !== undefined) {
         if (playerRef.isBlocking) {
             console.log('[COMBAT] Ataque enemigo bloqueado.');
